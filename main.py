@@ -21,7 +21,7 @@ logging.basicConfig(
 
 # ==== 🔐 Конфигурация ====
 BOT_TOKEN = "7862255887:AAG3G-76mmHj15DaZ8KGfWWcc6cVAhq0I7w"
-REQUIRED_CHANNEL = "@taxi_nukus_tashkent"
+REQUIRED_CHANNEL = "@ShimbayNukusTaxi24_7"
 ADMIN_ID = 1033785549  # Admin IDs
 DATABASE_URL = "sqlite+aiosqlite:///./taxi_bot.db"
 
