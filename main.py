@@ -52,6 +52,8 @@ START_TEXT = """
 
 ☎️ +998994804848
 
+Каналымызга косылын:
+https://t.me/ShimbayNukusTaxi24_7
 
 """
 
