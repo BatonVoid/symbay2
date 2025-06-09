@@ -1,38 +1,36 @@
-from aiogram import Bot, Dispatcher, types, F
-from aiogram.types import Message, ReplyKeyboardMarkup, KeyboardButton
-from aiogram.enums import ParseMode
-from aiogram.fsm.storage.memory import MemoryStorage
-from aiogram.filters import CommandStart
-from aiogram.client.default import DefaultBotProperties
-from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
-from aiogram.types import CallbackQuery
-
 import asyncio
-from aiohttp import web 
-import os
+from aiogram import Bot, Dispatcher, Router, types, F
+from aiogram.filters import CommandStart
+from aiogram.enums import ParseMode
+from aiogram.types import Message, ReplyKeyboardMarkup, KeyboardButton
+from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
+from sqlalchemy.orm import sessionmaker, declarative_base
+from sqlalchemy import Column, Integer, BigInteger, select
+import logging
+from aiogram.client.bot import DefaultBotProperties
 
-# 🔐 Впиши сюда свой секретный токен
-TOKEN = "7862255887:AAG3G-76mmHj15DaZ8KGfWWcc6cVAhq0I7w"
 
-# 🧠 Инициализация бота и диспетчера
-default_properties = DefaultBotProperties(parse_mode=ParseMode.HTML)  # Настройка parse_mode
-bot = Bot(token=TOKEN, default=default_properties)  # Передаем default_properties
-dp = Dispatcher(storage=MemoryStorage())
 
-# Простой HTTP-сервер для Render.com
-async def on_startup(app):
-    asyncio.create_task(dp.start_polling(bot))
+default_bot_properties = DefaultBotProperties(parse_mode="HTML")
 
-app = web.Application()
-app.on_startup.append(on_startup)
 
-# Маршрут для проверки работоспособности
-async def healthcheck(request):
-    return web.Response(text="OK")
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s | %(levelname)s | %(message)s",
+)
 
-app.router.add_get("/", healthcheck)
+# ==== 🔐 Конфигурация ====
+BOT_TOKEN = "7862255887:AAG3G-76mmHj15DaZ8KGfWWcc6cVAhq0I7w"
+REQUIRED_CHANNEL = "@taxi_nukus_tashkent"
+ADMIN_ID = 1033785549  # Admin IDs
+DATABASE_URL = "sqlite+aiosqlite:///./taxi_bot.db"
 
+# ==== 🧱 База данных ====
+Base = declarative_base()
+engine = create_async_engine(DATABASE_URL, echo=False)
+SessionLocal = sessionmaker(bind=engine, class_=AsyncSession, expire_on_commit=False)
 START_TEXT = """
+
 ➤ ТАКСИ-БОТ | НӨКИС - ШЫМБАЙ
 
 Хош келдиңиз!
@@ -78,104 +76,154 @@ TEXT_SHYMBAY_NOKIS = """
 ✅ <b>Қосымша хызметлер</b>: АМАНАТ БОЛСА АЛЫП КЕТЕМИЗ ХАМ БАГАЖ БАР
 """
 
-# Словарь для хранения статистики
-user_stats = {}
 
-# 🪑 Обычные кнопки маршрутов
-# def get_main_keyboard():
-#     return ReplyKeyboardMarkup(
-#         keyboard=[
-#             [KeyboardButton(text="Нокис-Шымбай")],
-#             [KeyboardButton(text="Шымбай-Нукус")]
-#         ],
-#         resize_keyboard=True,  # подгоняет размер
-#         one_time_keyboard=False  # клавиатура остаётся
-#     )
-def get_main_keyboard():
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [
-                InlineKeyboardButton(text="Нокис-Шымбай", callback_data="nukis_shymbay"),
-                InlineKeyboardButton(text="Шымбай-Нукус", callback_data="shymbay_nukis")
-            ]
+class UserStats(Base):
+    __tablename__ = "user_stats"
+    id = Column(Integer, primary_key=True)
+    user_id = Column(BigInteger, unique=True, index=True)
+    interactions = Column(Integer, default=1)
+
+# ==== 🎛 Клавиатуры ====
+def get_user_keyboard():
+    return ReplyKeyboardMarkup(
+        keyboard=[
+            [KeyboardButton(text="🏙 Shimbay → Nókis")],
+            [KeyboardButton(text="🌆 Nókis → Shimbay")]
         ],
+        resize_keyboard=True
     )
 
-# 🌀 Команда /start
-@dp.message(CommandStart())
+def get_admin_keyboard():
+    return ReplyKeyboardMarkup(
+        keyboard=[
+            [KeyboardButton(text="🏙 Shimbay → Nókis")],
+            [KeyboardButton(text="🌆 Nókis → Shimbay")],
+            [KeyboardButton(text="📊 Statistika"), KeyboardButton(text="Xabarlandırıw")]
+        ],
+        resize_keyboard=True
+    )
+
+# ==== 🤖 Логика ====
+router = Router()
+
+async def check_subscription(bot: Bot, user_id: int) -> bool:
+    try:
+        member = await bot.get_chat_member(chat_id=REQUIRED_CHANNEL, user_id=user_id)
+        return member.status in ("member", "administrator", "creator")
+    except Exception:
+        return False
+
+async def add_or_update_user(user_id: int):
+    async with SessionLocal() as session:
+        result = await session.execute(select(UserStats).where(UserStats.user_id == user_id))
+        user = result.scalar_one_or_none()
+
+        if user:
+            user.interactions += 1
+        else:
+            user = UserStats(user_id=user_id)
+            session.add(user)
+
+        await session.commit()
+
+async def broadcast_to_all_users(bot: Bot, text: str):
+    async with SessionLocal() as session:
+        result = await session.execute(select(UserStats.user_id))
+        user_ids = [row[0] for row in result.fetchall()]
+
+    success = 0
+    for user_id in user_ids:
+        try:
+            await bot.send_message(chat_id=user_id, text=text)
+            success += 1
+        except Exception:
+            pass
+    return success
+
+# ==== 🎯 Хендлеры ====
+
+@router.message(CommandStart())
 async def cmd_start(message: Message):
+    bot = message.bot
     user_id = message.from_user.id
 
-    # Если пользователь новый, добавляем его в статистику
-    if user_id not in user_stats:
-        user_stats[user_id] = 1
-    else:
-        user_stats[user_id] += 1
+    if not await check_subscription(bot, user_id):
+        await message.answer("❗ Dáslep kanalǵa aǵza bolıń: @taxi_nukus_tashkent")
+        return
+
+    await add_or_update_user(user_id)
+
+    keyboard = get_admin_keyboard() if user_id == ADMIN_ID else get_user_keyboard()
 
     await message.answer(
-        START_TEXT,
-        reply_markup=get_main_keyboard()
+        "Sálemetsiz be! Qay jóneliske taksi kerek?" + START_TEXT,
+        reply_markup=keyboard
     )
 
-# 🚖 Обработка выбора маршрута
-# @dp.message(F.text == "Нокис-Шымбай")
-# async def handle_nukus_shymbay(message: Message):
-#     user_id = message.from_user.id
-
-#     # Увеличиваем счетчик взаимодействий пользователя
-#     if user_id not in user_stats:
-#         user_stats[user_id] = 1
-#     else:
-#         user_stats[user_id] += 1
-
-#     await message.answer(TEXT_NOKIS_SHYMBAY)
-
-# @dp.message(F.text == "Шымбай-Нукус")
-# async def handle_shymbay_nukus(message: Message):
-#     user_id = message.from_user.id
-
-#     # Увеличиваем счетчик взаимодействий пользователя
-#     if user_id not in user_stats:
-#         user_stats[user_id] = 1
-#     else:
-#         user_stats[user_id] += 1
-
-#     await message.answer(TEXT_SHYMBAY_NOKIS)
-@dp.callback_query(F.data == "nukis_shymbay")
-async def handle_nukus_shymbay(callback: CallbackQuery):
-    user_id = callback.from_user.id
-
-    # Обновляем статистику
-    user_stats[user_id] = user_stats.get(user_id, 0) + 1
-
-    # Отправляем сообщение с маршрутом
-    await callback.message.answer(TEXT_NOKIS_SHYMBAY)
-    await callback.answer()  # Убираем "часики"
-
-@dp.callback_query(F.data == "shymbay_nukis")
-async def handle_shymbay_nukus(callback: CallbackQuery):
-    user_id = callback.from_user.id
-
-    user_stats[user_id] = user_stats.get(user_id, 0) + 1
-
-    await callback.message.answer(TEXT_SHYMBAY_NOKIS)
-    await callback.answer()
-
-
-
-# 📊 Команда /stats для вывода статистики
-@dp.message(F.text == "/stats")
+@router.message(F.text == "📊 Statistika")
 async def show_stats(message: Message):
-    total_users = len(user_stats)  # Количество уникальных пользователей
-    total_interactions = sum(user_stats.values())  # Общее количество взаимодействий
+    if message.from_user.id != ADMIN_ID:
+        return
+    async with SessionLocal() as session:
+        result = await session.execute(select(UserStats))
+        users = result.scalars().all()
+
+    total_users = len(users)
+    total_interactions = sum(u.interactions for u in users)
 
     await message.answer(
-        f"📊 <b>Боттын статистикасы:</b>\n"
-        f"• Колдарнушылар саны: <b>{total_users}</b>\n"
-        f"• Катнаслар саны: <b>{total_interactions}</b>",
-        parse_mode=ParseMode.HTML
+        f"📈 Жалпы қолданушылар: <b>{total_users}</b>\n"
+        f"📊 Жалпы әрекеттер: <b>{total_interactions}</b>",
+
     )
 
-# Запуск HTTP-сервера
+@router.message(F.text == "Xabarlandırıw")
+async def notify_info(message: Message):
+    if message.from_user.id != ADMIN_ID:
+        return
+    await message.answer("✍️ Jiberginiz kelgen xabardı jazıń, onı hámme kóredi..")
+
+@router.message(F.text)
+async def message_handler(message: Message):
+    user_id = message.from_user.id
+    text = message.text
+
+
+    if user_id == ADMIN_ID and text not in ["📊 Statistika", "Xabarlandırıw", "🏙 Tashkent → Nókis", "🌆 Nókis → Tashkent"]:
+        count = await broadcast_to_all_users(message.bot, f"📢 Admin xabarı:\n\n{text}")
+        await message.answer(f"✅ Xabar {count} adamǵa jiberildi.")
+        return
+
+    if text in "🏙 Shimbay → Nókis":
+        await add_or_update_user(user_id)
+        await message.answer(f"✅ " + TEXT_SHYMBAY_NOKIS)
+
+
+    if text in "🌆 Nókis → Shimbay":
+        await add_or_update_user(user_id)
+        await message.answer(f"✅ " + TEXT_NOKIS_SHYMBAY)
+
+
+async def main():
+
+    # Создание таблиц
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+
+    default_bot_properties = DefaultBotProperties(parse_mode=ParseMode.HTML)
+    bot = Bot(token=BOT_TOKEN, default=default_bot_properties)
+    dp = Dispatcher()
+    dp.include_router(router)
+
+    try:
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+    except Exception as e:
+        logging.error(f"Ошибка при создании таблиц: {e}")
+
+    logging.info("Бот запускается...")
+    await dp.start_polling(bot)
+
 if __name__ == "__main__":
-    web.run_app(app, port=int(os.getenv("PORT", 8080)))
+    import asyncio
+    asyncio.run(main())
