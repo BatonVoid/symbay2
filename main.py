@@ -107,12 +107,12 @@ def get_admin_keyboard():
 # ==== 🤖 Логика ====
 router = Router()
 
-async def check_subscription(bot: Bot, user_id: int) -> bool:
-    try:
-        member = await bot.get_chat_member(chat_id=REQUIRED_CHANNEL, user_id=user_id)
-        return member.status in ("member", "administrator", "creator")
-    except Exception:
-        return False
+#async def check_subscription(bot: Bot, user_id: int) -> bool:
+#    try:
+    #    member = await bot.get_chat_member(chat_id=REQUIRED_CHANNEL, user_id=user_id)
+    #    return member.status in ("member", "administrator", "creator")
+ #   except Exception:
+ #       return False
 
 async def add_or_update_user(user_id: int):
     async with SessionLocal() as session:
@@ -148,9 +148,9 @@ async def cmd_start(message: Message):
     bot = message.bot
     user_id = message.from_user.id
 
-    if not await check_subscription(bot, user_id):
-        await message.answer("❗ Dáslep kanalǵa aǵza bolıń: @ShimbayNukusTaxi24_7")
-        return
+ #   if not await check_subscription(bot, user_id):
+ #       await message.answer("❗ Dáslep kanalǵa aǵza bolıń: @ShimbayNukusTaxi24_7")
+  #      return
 
     await add_or_update_user(user_id)
 
