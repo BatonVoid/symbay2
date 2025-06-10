@@ -22,7 +22,7 @@ logging.basicConfig(
 # ==== 🔐 Конфигурация ====
 BOT_TOKEN = "7862255887:AAG3G-76mmHj15DaZ8KGfWWcc6cVAhq0I7w"
 REQUIRED_CHANNEL = "@ShimbayNukusTaxi24_7"
-ADMIN_ID = 1033785549  # Admin IDs
+ADMIN_ID = 8075429830  # Admin IDs
 DATABASE_URL = "sqlite+aiosqlite:///./taxi_bot.db"
 
 # ==== 🧱 База данных ====
@@ -52,6 +52,7 @@ START_TEXT = """
 
 Каналымызга косылын:
 https://t.me/ShimbayNukusTaxi24_7
+https://t.me/ShimbayNukusTaxi
 
 """
 
@@ -148,7 +149,7 @@ async def cmd_start(message: Message):
     user_id = message.from_user.id
 
     if not await check_subscription(bot, user_id):
-        await message.answer("❗ Dáslep kanalǵa aǵza bolıń: @taxi_nukus_tashkent")
+        await message.answer("❗ Dáslep kanalǵa aǵza bolıń: @ShimbayNukusTaxi24_7")
         return
 
     await add_or_update_user(user_id)
